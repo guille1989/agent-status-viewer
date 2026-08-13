@@ -56,7 +56,7 @@ export function ActivityFeed({ events }: { events: TicketEvent[] }) {
       {events.length === 0 ? (
         <div className="empty-state compact">
           <TicketIcon />
-          <p>Todavía no se capturaron tickets.</p>
+          <p>Todavía no se ha registrado actividad en los puertos.</p>
         </div>
       ) : (
         <ul className="activity-list">

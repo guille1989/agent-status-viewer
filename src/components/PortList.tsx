@@ -4,11 +4,11 @@ import { PlugIcon } from "./Icons";
 export function PortList({ ports }: { ports: PortInfo[] }) {
   return (
     <section className="section ports-section">
-      <h2 className="section-title">Dispositivos detectados</h2>
+      <h2 className="section-title">Puertos detectados</h2>
       {ports.length === 0 ? (
         <div className="empty-state">
           <PlugIcon />
-          <p>Comprueba que las impresoras estén encendidas y conectadas al equipo.</p>
+          <p>Todavía no se detectaron puertos disponibles.</p>
         </div>
       ) : (
         <ul className="port-list">

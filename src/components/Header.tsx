@@ -46,7 +46,7 @@ function getStatusContent(
     return {
       badge: "Verificando",
       title: "Comprobando el estado",
-      description: "Estamos validando la conexión y los dispositivos disponibles.",
+      description: "Estamos validando la conexión y los puertos disponibles.",
       tone: "neutral",
     };
   }
@@ -54,7 +54,7 @@ function getStatusContent(
   if (detectedPorts === 0) {
     return {
       badge: "Activo",
-      title: "No se detectan dispositivos",
+      title: "No se detectan puertos",
       description: "El agente está activo, pero todavía no encuentra puertos conectados.",
       tone: "warning",
     };
