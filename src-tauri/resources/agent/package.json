@@ -1,0 +1,8 @@
+{
+  "name": "innoapp-agent-runtime",
+  "private": true,
+  "type": "module",
+  "dependencies": {
+    "serialport": "12.0.0"
+  }
+}

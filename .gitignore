@@ -8,6 +8,9 @@ pnpm-debug.log*
 lerna-debug.log*
 
 node_modules
+src-tauri/resources/agent/node_modules
+src-tauri/resources/agent/node.exe
+src-tauri/resources/agent/app.mjs
 dist
 dist-ssr
 *.local

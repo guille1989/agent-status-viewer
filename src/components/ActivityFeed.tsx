@@ -1,5 +1,6 @@
 import { useLayoutEffect, useRef } from "react";
 import type { TicketEvent } from "../types";
+import { TicketIcon } from "./Icons";
 
 function formatTime(iso: string): string {
   const date = new Date(iso);
@@ -12,12 +13,8 @@ function formatTime(iso: string): string {
 }
 
 /**
- * Anima el desplazamiento de las filas ya existentes cuando entra un ticket
- * nuevo (técnica FLIP): mide la posición de cada fila antes y después del
- * render, y si cambió, la arranca desde su posición vieja y la deja
- * transicionar hasta la nueva. Las filas realmente nuevas no tienen
- * posición previa registrada, así que quedan afuera de esto — para esas
- * corre el keyframe `slide-in` de styles.css.
+ * Anima el desplazamiento de las filas existentes cuando entra un ticket
+ * nuevo. Las filas nuevas usan el keyframe `slide-in` de styles.css.
  */
 function useRowShiftAnimation(rowIds: string[]) {
   const rowRefs = useRef(new Map<string, HTMLLIElement>());
@@ -55,9 +52,12 @@ export function ActivityFeed({ events }: { events: TicketEvent[] }) {
 
   return (
     <section className="section section-grow">
-      <h2 className="section-title">Actividad en tiempo real</h2>
+      <h2 className="section-title">Actividad reciente</h2>
       {events.length === 0 ? (
-        <p className="empty">Todavía no se capturaron tickets.</p>
+        <div className="empty-state compact">
+          <TicketIcon />
+          <p>Todavía no se capturaron tickets.</p>
+        </div>
       ) : (
         <ul className="activity-list">
           {events.map((event) => (
@@ -69,13 +69,14 @@ export function ActivityFeed({ events }: { events: TicketEvent[] }) {
                 else rowRefs.delete(event.id);
               }}
             >
-              <span className="activity-icon" aria-hidden="true">🧾</span>
+              <span className="activity-icon" aria-hidden="true"><TicketIcon /></span>
               <div className="activity-main">
                 <span className="activity-description">Ticket capturado</span>
-                <span className="activity-meta">
-                  {formatTime(event.timestamp)} · {event.port}
-                </span>
+                <span className="activity-meta">{event.port}</span>
               </div>
+              <time className="activity-time" dateTime={event.timestamp}>
+                {formatTime(event.timestamp)}
+              </time>
             </li>
           ))}
         </ul>

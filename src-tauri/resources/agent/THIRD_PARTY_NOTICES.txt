@@ -1,0 +1,7 @@
+This pilot distribution bundles the Node.js runtime and the serialport npm package.
+
+Node.js is licensed under the MIT license and includes third-party components.
+License information: https://github.com/nodejs/node/blob/main/LICENSE
+
+serialport is licensed under the MIT license.
+License information: https://github.com/serialport/node-serialport/blob/master/LICENSE
