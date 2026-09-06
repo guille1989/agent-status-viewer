@@ -76,6 +76,13 @@ pub fn start_agent(app: &AppHandle, process: &AgentProcess) -> Result<(), String
     let stdout = File::create(logs.join("agent.log")).map_err(|err| err.to_string())?;
     let stderr = File::create(logs.join("agent-error.log")).map_err(|err| err.to_string())?;
 
+    // Build del piloto: la captura viene PRENDIDA. Ya se validó instalación,
+    // activación, detección de puertos y heartbeat contra PCs reales, así que
+    // esta versión abre los puertos detectados para leer tickets. Sigue
+    // siendo overrideable desde el entorno del SO (ENABLE_CAPTURE=false) para
+    // poder dejar una instalación en modo "solo diagnóstico" sin recompilar.
+    let enable_capture = std::env::var("ENABLE_CAPTURE").unwrap_or_else(|_| "true".to_string());
+
     let mut command = Command::new(runtime.join("node.exe"));
     command
         // El directorio de instalación contiene espacios ("InnoApp Agent").
@@ -86,7 +93,7 @@ pub fn start_agent(app: &AppHandle, process: &AgentProcess) -> Result<(), String
         .env("CLOUD_UPLOAD_URL", UPLOAD_URL)
         .env("AGENT_CREDENTIALS_FILE", data.join("credentials.json"))
         .env("QUEUE_FILE", data.join("queue.json"))
-        .env("ENABLE_CAPTURE", "false")
+        .env("ENABLE_CAPTURE", enable_capture)
         .stdout(Stdio::from(stdout))
         .stderr(Stdio::from(stderr));
 
