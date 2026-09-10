@@ -7,10 +7,13 @@ mod tray;
 use tauri::Manager;
 
 use state::SharedState;
-use agent_runtime::AgentProcess;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // El agente lo corre el servicio Windows `innoapp-agent-service` (ver el
+    // crate `agent-service`). Esta app es solo el visor de estado: se conecta
+    // al named pipe del agente y, al activar, escribe `credentials.json` en
+    // `C:\ProgramData\InnoApp Agent\` para que el servicio lo levante.
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
             if let Some(window) = app.get_webview_window("main") {
@@ -19,7 +22,6 @@ pub fn run() {
             }
         }))
         .manage(SharedState::new())
-        .manage(AgentProcess::default())
         .invoke_handler(tauri::generate_handler![
             commands::get_status,
             agent_runtime::get_activation_status,
@@ -28,11 +30,6 @@ pub fn run() {
         ])
         .setup(|app| {
             tray::setup_tray(app.handle())?;
-            if let Some(process) = app.try_state::<AgentProcess>() {
-                if let Err(err) = agent_runtime::start_agent(app.handle(), &process) {
-                    eprintln!("[runtime] {err}");
-                }
-            }
             agent_client::connection::spawn_connection_loop(app.handle().clone());
             Ok(())
         })
@@ -42,13 +39,6 @@ pub fn run() {
                 let _ = window.hide();
             }
         })
-        .build(tauri::generate_context!())
-        .expect("error while building tauri application")
-        .run(|app, event| {
-            if let tauri::RunEvent::Exit = event {
-                if let Some(process) = app.try_state::<AgentProcess>() {
-                    agent_runtime::stop_agent(&process);
-                }
-            }
-        });
+        .run(tauri::generate_context!())
+        .expect("error while building tauri application");
 }

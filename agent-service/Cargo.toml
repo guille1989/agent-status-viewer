@@ -1,0 +1,17 @@
+[package]
+name = "innoapp-agent-service"
+version = "0.3.0"
+description = "Servicio Windows que corre el print-capture-agent como LocalSystem"
+edition = "2021"
+
+[[bin]]
+name = "innoapp-agent-service"
+path = "src/main.rs"
+
+[dependencies]
+windows-service = "0.7"
+
+[profile.release]
+strip = true
+lto = true
+opt-level = "z"

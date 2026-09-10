@@ -11,6 +11,8 @@ node_modules
 src-tauri/resources/agent/node_modules
 src-tauri/resources/agent/node.exe
 src-tauri/resources/agent/app.mjs
+src-tauri/resources/innoapp-agent-service.exe
+agent-service/target
 dist
 dist-ssr
 *.local

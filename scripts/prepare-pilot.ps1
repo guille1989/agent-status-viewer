@@ -4,7 +4,9 @@ $viewerRoot = Split-Path -Parent $PSScriptRoot
 $workspaceRoot = Split-Path -Parent $viewerRoot
 $agentRoot = Join-Path $workspaceRoot "print-capture-agent"
 $pipeRoot = Join-Path $workspaceRoot "print-capture-agent-pipe-server"
-$runtimeRoot = Join-Path $viewerRoot "src-tauri\resources\agent"
+$serviceRoot = Join-Path $viewerRoot "agent-service"
+$resourcesRoot = Join-Path $viewerRoot "src-tauri\resources"
+$runtimeRoot = Join-Path $resourcesRoot "agent"
 
 & npm.cmd --prefix $pipeRoot run build
 if ($LASTEXITCODE -ne 0) { throw "Falló el build del pipe server" }
@@ -23,4 +25,11 @@ Copy-Item -LiteralPath $nodeExe -Destination (Join-Path $runtimeRoot "node.exe")
 & npm.cmd --prefix $runtimeRoot install --omit=dev --no-audit --no-fund
 if ($LASTEXITCODE -ne 0) { throw "No se pudieron preparar las dependencias del runtime" }
 
+# Servicio Windows (crate agent-service) que corre el agente como LocalSystem.
+& cargo build --release --manifest-path (Join-Path $serviceRoot "Cargo.toml")
+if ($LASTEXITCODE -ne 0) { throw "Falló el build del servicio" }
+Copy-Item -LiteralPath (Join-Path $serviceRoot "target\release\innoapp-agent-service.exe") `
+          -Destination (Join-Path $resourcesRoot "innoapp-agent-service.exe") -Force
+
 Write-Output "Runtime piloto preparado en $runtimeRoot"
+Write-Output "Servicio copiado a $resourcesRoot\innoapp-agent-service.exe"
