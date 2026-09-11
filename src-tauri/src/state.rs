@@ -39,18 +39,6 @@ impl Default for AgentViewState {
 }
 
 impl AgentViewState {
-    pub fn push_event(&mut self, event: TicketEvent) {
-        self.recent_events.insert(0, event);
-        self.recent_events.truncate(MAX_RECENT_EVENTS);
-    }
-
-    pub fn upsert_port(&mut self, port: PortInfo) {
-        match self.ports.iter_mut().find(|p| p.id == port.id) {
-            Some(existing) => *existing = port,
-            None => self.ports.push(port),
-        }
-    }
-
     pub fn mark_disconnected(&mut self) {
         self.connection = ConnectionState::Disconnected;
         self.agent_status = "unknown".to_string();

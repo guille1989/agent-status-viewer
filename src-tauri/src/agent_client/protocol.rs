@@ -1,11 +1,10 @@
 use serde::Deserialize;
 
-/// Nombre del named pipe que expone el print-capture-agent.
-pub const PIPE_NAME: &str = r"\\.\pipe\print-capture-agent";
-
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentInfo {
     pub name: String,
+    #[serde(default)]
+    #[allow(dead_code)]
     pub version: String,
     pub status: String,
 }
@@ -30,24 +29,19 @@ pub struct TicketEvent {
     pub port: String,
 }
 
-/// Un mensaje NDJSON emitido por el agente, una línea = un mensaje.
+/// Snapshot del estado del agente, tal como el pipe-server lo escribe en
+/// `C:\ProgramData\InnoApp Agent\status.json`. La app de bandeja lo poolea
+/// en vez de abrir el named pipe (que un proceso de LocalSystem no comparte
+/// con un proceso de usuario).
 #[derive(Debug, Clone, Deserialize)]
-#[serde(tag = "type", rename_all = "snake_case")]
-pub enum IncomingMessage {
-    Snapshot {
-        agent: AgentInfo,
-        ports: Vec<PortInfo>,
-        #[serde(rename = "recentEvents")]
-        recent_events: Vec<TicketEvent>,
-    },
-    PortUpdate {
-        port: PortInfo,
-    },
-    TicketEvent {
-        event: TicketEvent,
-    },
-    AgentStatus {
-        status: String,
-        message: Option<String>,
-    },
+#[serde(rename_all = "camelCase")]
+pub struct StatusFile {
+    pub written_at: String,
+    pub agent: AgentInfo,
+    #[serde(default)]
+    pub status_message: Option<String>,
+    #[serde(default)]
+    pub ports: Vec<PortInfo>,
+    #[serde(default)]
+    pub recent_events: Vec<TicketEvent>,
 }
