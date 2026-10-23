@@ -126,7 +126,8 @@ button, input { font: inherit; }
 
 .section { position: relative; flex-shrink: 0; padding: 15px 12px 0; }
 .section-title { margin: 0 4px 8px; color: #687588; }
-.ports-section { max-height: 180px; }
+.ports-section { display: flex; flex-direction: column; max-height: 180px; }
+.ports-section .port-list { min-height: 0; }
 .section-grow { display: flex; min-height: 0; flex: 1; flex-direction: column; padding-bottom: 10px; }
 
 .port-list,

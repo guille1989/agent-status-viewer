@@ -92,6 +92,7 @@ export default function App() {
         agentStatus={state.agentStatus}
         agentStatusMessage={state.agentStatusMessage}
         detectedPorts={state.ports.length}
+        capturedTickets={state.recentEvents.length}
       />
       {state.connection === "disconnected" ? (
         <div className="disconnected-banner">

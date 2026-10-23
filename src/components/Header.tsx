@@ -7,6 +7,7 @@ interface HeaderProps {
   agentStatus: AgentStatus;
   agentStatusMessage: string | null;
   detectedPorts: number;
+  capturedTickets: number;
 }
 
 type VisualTone = "success" | "warning" | "danger" | "neutral";
@@ -23,6 +24,7 @@ function getStatusContent(
   agentStatus: AgentStatus,
   agentStatusMessage: string | null,
   detectedPorts: number,
+  capturedTickets: number,
 ): StatusContent {
   if (connection === "disconnected") {
     return {
@@ -60,6 +62,18 @@ function getStatusContent(
     };
   }
 
+  // Tener puertos no prueba que la captura funcione: el verde exige haber
+  // visto al menos un ticket.
+  if (capturedTickets === 0) {
+    return {
+      badge: "Vigilando",
+      title: "Agente activo, aún sin tickets",
+      description:
+        "Todavía no se ha capturado ningún ticket. Verifica que este equipo imprima las facturas de la caja.",
+      tone: "warning",
+    };
+  }
+
   return {
     badge: "Activo",
     title: "Todo funciona correctamente",
@@ -74,12 +88,14 @@ export function Header({
   agentStatus,
   agentStatusMessage,
   detectedPorts,
+  capturedTickets,
 }: HeaderProps) {
   const content = getStatusContent(
     connection,
     agentStatus,
     agentStatusMessage,
     detectedPorts,
+    capturedTickets,
   );
   const SummaryIcon =
     content.tone === "success"
