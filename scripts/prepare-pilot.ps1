@@ -46,7 +46,8 @@ $outputFile = Join-Path $runtimeRoot "app.mjs"
 $outputArgument = "--outfile=$outputFile"
 # Inyecta la versión del package.json del agent para que el heartbeat no
 # dependa de un package.json en Program Files.
-$defineVersion = "--define:process.env.AGENT_VERSION=`"$agentVersion`""
+# PowerShell strips bare quotes from external args; keep \" so esbuild sees a JS string.
+$defineVersion = '--define:process.env.AGENT_VERSION=\"' + $agentVersion + '\"'
 & node $esbuild (Join-Path $agentRoot "src\index.ts") --bundle --platform=node --format=esm --external:serialport $outputArgument $defineVersion
 if ($LASTEXITCODE -ne 0) { throw "Falló el bundle del agente" }
 
