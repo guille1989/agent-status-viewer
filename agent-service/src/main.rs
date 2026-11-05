@@ -29,7 +29,10 @@ use std::{
     time::{Duration, Instant, SystemTime},
 };
 
-use innoapp_agent_service::ota::{apply_pending_update, parse_pending_apply, rollback_from_prev};
+use innoapp_agent_service::ota::{
+    apply_pending_update, parse_pending_apply, rollback_from_prev, secure_updates_dir, should_rollback,
+    OTA_BOOT_GRACE,
+};
 use windows_service::{
     define_windows_service,
     service::{
@@ -44,8 +47,6 @@ use windows_service::{
 const SERVICE_NAME: &str = "InnoAppAgent";
 const SERVICE_DISPLAY: &str = "InnoApp Agent";
 const CLOUD_UPLOAD_URL: &str = "https://uqa4ti7fwi.execute-api.us-east-1.amazonaws.com/prod/tickets";
-/// Si el hijo sale antes de esto tras un apply OTA, se hace rollback a `.prev`.
-const OTA_BOOT_GRACE: Duration = Duration::from_secs(90);
 
 /// Carpeta compartida entre el servicio (LocalSystem) y la app de bandeja
 /// (usuario). El instalador la crea con permiso de modificación para
@@ -199,8 +200,18 @@ fn run_service() -> windows_service::Result<()> {
 
     let mut child: Option<Child> = None;
     let mut last_creds_mtime = credentials_mtime();
+    // OTA solo si `updates\` quedó cerrado a usuarios sin privilegios; si no,
+    // cualquiera podría plantar un bundle que corre como SYSTEM.
+    let ota_enabled = match secure_updates_dir(&updates_dir()) {
+        Ok(()) => true,
+        Err(err) => {
+            log_line("service-error.log", &format!("OTA deshabilitado: no se pudo proteger updates\\: {err}"));
+            false
+        }
+    };
     let mut last_pending_mtime = pending_apply_mtime();
-    let mut ota_spawned_at: Option<Instant> = None;
+    // Cuándo se lanzó el hijo actual: la gracia del boot-check cuenta desde ahí.
+    let mut child_started_at: Option<Instant> = None;
     let mut backoff = Duration::from_secs(2);
     const MAX_BACKOFF: Duration = Duration::from_secs(60);
     const TICK: Duration = Duration::from_secs(3);
@@ -228,13 +239,16 @@ fn run_service() -> windows_service::Result<()> {
                 let _ = c.kill();
                 let _ = c.wait();
             }
-            ota_spawned_at = None;
         }
 
         // OTA: pending-apply.json escrito por el agent tras download+verify.
         let pending_mtime = pending_apply_mtime();
         if pending_mtime.is_some() && pending_mtime != last_pending_mtime {
             last_pending_mtime = pending_mtime;
+            if !ota_enabled {
+                log_line("service-error.log", "pending-apply ignorado: OTA deshabilitado");
+                let _ = fs::remove_file(pending_apply_path());
+            } else {
             match fs::read_to_string(pending_apply_path()) {
                 Ok(raw) => match parse_pending_apply(&raw) {
                     Some(pending) => {
@@ -247,20 +261,20 @@ fn run_service() -> windows_service::Result<()> {
                             let _ = c.wait();
                         }
                         match apply_pending_update(&runtime, &updates_dir(), &pending) {
-                            Ok(()) => {
-                                log_line("service.log", &format!("OTA apply ok → {}", pending.version));
-                                ota_spawned_at = Some(Instant::now());
-                            }
+                            Ok(()) => log_line("service.log", &format!("OTA apply ok → {}", pending.version)),
                             Err(err) => {
                                 log_line("service-error.log", &format!("OTA apply falló: {err}"));
                                 let _ = fs::remove_file(pending_apply_path());
-                                ota_spawned_at = None;
                             }
                         }
                     }
-                    None => log_line("service-error.log", "pending-apply.json ilegible"),
+                    None => {
+                        log_line("service-error.log", "pending-apply.json ilegible o sin sha256 válido — descartado");
+                        let _ = fs::remove_file(pending_apply_path());
+                    }
                 },
                 Err(err) => log_line("service-error.log", &format!("no se pudo leer pending-apply: {err}")),
+            }
             }
         }
 
@@ -273,20 +287,29 @@ fn run_service() -> windows_service::Result<()> {
                 Ok(Some(status)) => {
                     log_line("service.log", &format!("el agente terminó ({status}) — relanzando"));
                     child = None;
-                    // Rollback si murió dentro de la gracia post-OTA con boot-check pendiente.
-                    if boot_check_path().is_file() {
-                        let early = ota_spawned_at
-                            .map(|t| t.elapsed() < OTA_BOOT_GRACE)
-                            .unwrap_or(false);
-                        if early {
-                            rollback_from_prev(&runtime, &updates_dir(), "child exited during OTA boot-check");
-                            log_line("service.log", "OTA rollback aplicado tras fallo de arranque");
-                        }
+                    // Murió sin que el agente nuevo confirmara (boot-check sigue ahí):
+                    // da igual si fue a los 5 s o a los 5 min, se vuelve a `.prev`.
+                    if should_rollback(boot_check_path().is_file(), false, Duration::ZERO, OTA_BOOT_GRACE) {
+                        rollback_from_prev(&runtime, &updates_dir(), "child exited before confirming OTA boot");
+                        log_line("service.log", "OTA rollback aplicado: el agente murió sin confirmar el arranque");
                     }
-                    ota_spawned_at = None;
                     true
                 }
-                Ok(None) => false,
+                Ok(None) => {
+                    // Vivo pero sin confirmar dentro de la gracia (colgado, sin red tras
+                    // el update, heartbeat roto): se mata y se vuelve a `.prev`.
+                    let since_spawn = child_started_at.map(|t| t.elapsed()).unwrap_or_default();
+                    if should_rollback(boot_check_path().is_file(), true, since_spawn, OTA_BOOT_GRACE) {
+                        log_line("service.log", "OTA: el agente no confirmó el arranque a tiempo — rollback");
+                        let _ = c.kill();
+                        let _ = c.wait();
+                        child = None;
+                        rollback_from_prev(&runtime, &updates_dir(), "agent did not confirm OTA boot in time");
+                        true
+                    } else {
+                        false
+                    }
+                }
                 Err(err) => {
                     log_line("service-error.log", &format!("try_wait falló: {err}"));
                     false
@@ -299,6 +322,7 @@ fn run_service() -> windows_service::Result<()> {
                 Ok(c) => {
                     log_line("service.log", &format!("agente lanzado (pid {})", c.id()));
                     child = Some(c);
+                    child_started_at = Some(Instant::now());
                     backoff = Duration::from_secs(2);
                 }
                 Err(err) => {

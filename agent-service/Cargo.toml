@@ -13,6 +13,7 @@ name = "innoapp-agent-service"
 path = "src/main.rs"
 
 [dependencies]
+sha2 = "0.10"
 windows-service = "0.7"
 
 [profile.release]
