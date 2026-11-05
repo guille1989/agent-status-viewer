@@ -28,13 +28,22 @@ C:\ProgramData\InnoApp Agent\
   queue.json
   status.json
   logs\
-  updates\                  # Fase 1: staging + app.mjs.prev
+  updates\
+    staging\app.mjs
+    pending-apply.json      # agent → servicio: swap + reinicio
+    boot-check.json         # post-swap; agent OK lo borra
+    rolled-back.json        # servicio restauró .prev
+    app.mjs.prev
 ```
 
 Se conserva en uninstall/reinstall a propósito (activación y cola).
 
-## Servicio
+## Servicio + OTA (Fase 1)
 
 - Nombre SCM: `InnoAppAgent`
 - Display: `InnoApp Agent`
 - Cuenta: `LocalSystem`
+- Además de reiniciar en crash / cambio de `credentials.json`, aplica
+  `updates\pending-apply.json`: stop hijo → `app.mjs` → `.prev` → staging a
+  `resources\agent\app.mjs` → spawn. Si el hijo muere en ~90s con
+  `boot-check.json`, restaura `.prev`.
