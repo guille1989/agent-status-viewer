@@ -13,6 +13,11 @@
 //! conecta al named pipe que levanta el agente y muestra el estado. Al
 //! activar, escribe `credentials.json` en `C:\ProgramData\InnoApp Agent\`;
 //! este servicio vigila ese archivo y reinicia el agente cuando cambia.
+//!
+//! OTA Fase 1: si el agent deja `updates\pending-apply.json` tras descargar
+//! y verificar `app.mjs`, este servicio mata el hijo, hace backup `.prev`,
+//! swap atómico y relanza. Si el hijo muere pronto con `boot-check.json`
+//! pendiente, restaura `.prev` (rollback).
 
 use std::{
     ffi::OsString,
@@ -21,9 +26,10 @@ use std::{
     path::{Path, PathBuf},
     process::{Child, Command},
     sync::mpsc,
-    time::{Duration, SystemTime},
+    time::{Duration, Instant, SystemTime},
 };
 
+use innoapp_agent_service::ota::{apply_pending_update, parse_pending_apply, rollback_from_prev};
 use windows_service::{
     define_windows_service,
     service::{
@@ -38,6 +44,8 @@ use windows_service::{
 const SERVICE_NAME: &str = "InnoAppAgent";
 const SERVICE_DISPLAY: &str = "InnoApp Agent";
 const CLOUD_UPLOAD_URL: &str = "https://uqa4ti7fwi.execute-api.us-east-1.amazonaws.com/prod/tickets";
+/// Si el hijo sale antes de esto tras un apply OTA, se hace rollback a `.prev`.
+const OTA_BOOT_GRACE: Duration = Duration::from_secs(90);
 
 /// Carpeta compartida entre el servicio (LocalSystem) y la app de bandeja
 /// (usuario). El instalador la crea con permiso de modificación para
@@ -48,6 +56,18 @@ fn data_dir() -> PathBuf {
 
 fn credentials_path() -> PathBuf {
     data_dir().join("credentials.json")
+}
+
+fn updates_dir() -> PathBuf {
+    data_dir().join("updates")
+}
+
+fn pending_apply_path() -> PathBuf {
+    updates_dir().join("pending-apply.json")
+}
+
+fn boot_check_path() -> PathBuf {
+    updates_dir().join("boot-check.json")
 }
 
 fn logs_dir() -> PathBuf {
@@ -87,6 +107,10 @@ fn credentials_mtime() -> Option<SystemTime> {
     fs::metadata(credentials_path()).ok()?.modified().ok()
 }
 
+fn pending_apply_mtime() -> Option<SystemTime> {
+    fs::metadata(pending_apply_path()).ok()?.modified().ok()
+}
+
 fn spawn_agent(runtime: &Path) -> std::io::Result<Child> {
     let _ = fs::create_dir_all(logs_dir());
     // Append, no truncate: si el agente se cae y se relanza, no se pierde
@@ -107,6 +131,7 @@ fn spawn_agent(runtime: &Path) -> std::io::Result<Child> {
         .env("CLOUD_UPLOAD_URL", CLOUD_UPLOAD_URL)
         .env("AGENT_CREDENTIALS_FILE", data.join("credentials.json"))
         .env("QUEUE_FILE", data.join("queue.json"))
+        .env("AGENT_RUNTIME_DIR", runtime)
         .env("ENABLE_CAPTURE", enable_capture)
         .stdout(stdout)
         .stderr(stderr);
@@ -174,6 +199,8 @@ fn run_service() -> windows_service::Result<()> {
 
     let mut child: Option<Child> = None;
     let mut last_creds_mtime = credentials_mtime();
+    let mut last_pending_mtime = pending_apply_mtime();
+    let mut ota_spawned_at: Option<Instant> = None;
     let mut backoff = Duration::from_secs(2);
     const MAX_BACKOFF: Duration = Duration::from_secs(60);
     const TICK: Duration = Duration::from_secs(3);
@@ -201,17 +228,62 @@ fn run_service() -> windows_service::Result<()> {
                 let _ = c.kill();
                 let _ = c.wait();
             }
+            ota_spawned_at = None;
+        }
+
+        // OTA: pending-apply.json escrito por el agent tras download+verify.
+        let pending_mtime = pending_apply_mtime();
+        if pending_mtime.is_some() && pending_mtime != last_pending_mtime {
+            last_pending_mtime = pending_mtime;
+            match fs::read_to_string(pending_apply_path()) {
+                Ok(raw) => match parse_pending_apply(&raw) {
+                    Some(pending) => {
+                        log_line(
+                            "service.log",
+                            &format!("OTA pending-apply {} — deteniendo hijo y aplicando swap", pending.version),
+                        );
+                        if let Some(mut c) = child.take() {
+                            let _ = c.kill();
+                            let _ = c.wait();
+                        }
+                        match apply_pending_update(&runtime, &updates_dir(), &pending) {
+                            Ok(()) => {
+                                log_line("service.log", &format!("OTA apply ok → {}", pending.version));
+                                ota_spawned_at = Some(Instant::now());
+                            }
+                            Err(err) => {
+                                log_line("service-error.log", &format!("OTA apply falló: {err}"));
+                                let _ = fs::remove_file(pending_apply_path());
+                                ota_spawned_at = None;
+                            }
+                        }
+                    }
+                    None => log_line("service-error.log", "pending-apply.json ilegible"),
+                },
+                Err(err) => log_line("service-error.log", &format!("no se pudo leer pending-apply: {err}")),
+            }
         }
 
         // ¿Hace falta (re)lanzar el agente?
         let should_spawn = match child.as_mut() {
             // Sin agente: solo si ya hay credenciales (si no, esperamos a que se active).
             None => credentials_mtime().is_some(),
-            // Con agente: relanzar si terminó (crash, o salida por error).
+            // Con agente: relanzar si terminó (crash, o salida por error / OTA exit).
             Some(c) => match c.try_wait() {
                 Ok(Some(status)) => {
                     log_line("service.log", &format!("el agente terminó ({status}) — relanzando"));
                     child = None;
+                    // Rollback si murió dentro de la gracia post-OTA con boot-check pendiente.
+                    if boot_check_path().is_file() {
+                        let early = ota_spawned_at
+                            .map(|t| t.elapsed() < OTA_BOOT_GRACE)
+                            .unwrap_or(false);
+                        if early {
+                            rollback_from_prev(&runtime, &updates_dir(), "child exited during OTA boot-check");
+                            log_line("service.log", "OTA rollback aplicado tras fallo de arranque");
+                        }
+                    }
+                    ota_spawned_at = None;
                     true
                 }
                 Ok(None) => false,
