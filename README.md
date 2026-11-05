@@ -29,11 +29,16 @@ dependencias nativas de `serialport`. El usuario final no instala nada más.
 npm run build:pilot
 ```
 
-Sale en:
+Sale en (la versión es la de `package.json` / `tauri.conf.json`):
 
 ```text
-src-tauri/target/release/bundle/nsis/InnoApp Agent_0.3.0_x64-setup.exe
+src-tauri/target/release/bundle/nsis/InnoApp Agent_<versión>_x64-setup.exe
 ```
+
+`prepare-pilot.ps1` exige que esa versión coincida con
+`print-capture-agent/package.json` y la inyecta en el `app.mjs` (heartbeat).
+Checklist: [`docs/release-checklist.md`](docs/release-checklist.md). Paths:
+[`docs/paths.md`](docs/paths.md).
 
 El instalador (elevado, `installMode: perMachine`):
 1. copia todo a `C:\Program Files\InnoApp Agent\`
